@@ -1,0 +1,21 @@
+# KeyVault 项目记忆
+
+## 项目概况
+
+Android 密钥/API Key 管理应用，Kotlin + Jetpack Compose，UI 库为 **miuix**（`top.yukonga.miuix`，HyperOS 风格，非 Material 3）。数据存 Preferences DataStore（JSON 序列化，以稳定 id 为 key，name 为字段，兼容旧 name-key 格式）。包名 `cn.lemwood.keyvault`。
+
+## 关键坑（2026-08-02 实机踩过）
+
+- **miuix SuperDialog 依赖 NavigationEventDispatcher**：`SuperDialog`（含 InputDialog）内部用 `NavigationBackHandler`，必须在 Composition 根部提供 `CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides rememberNavigationEventDispatcherOwner(parent = null))`（见 `MainActivity.kt`）。删掉会直接 `IllegalStateException` 崩溃；根部调用必须显式传 `parent = null`。这不是死代码，勿删。
+- **FLAG_SECURE 会拦截 adb screencap**：App 已加 `FLAG_SECURE`，截图得到 0 字节文件。UI 自动化验证改用 `adb shell uiautomator dump` + 解析 bounds + `input tap`。
+- **构建/安装**：`./gradlew assembleDebug` → `adb install -r app/build/outputs/apk/debug/app-debug.apk`。查看数据：`adb shell run-as cn.lemwood.keyvault cat files/datastore/vault.preferences_pb | strings`（debug 包可 run-as）。
+
+## 调试设备
+
+Redmi K40（alioth，M2012K11AC），Android 13 MIUI，adb 网络连接（`adb devices` 中 172.25.x.x）。用户常用该设备跑 ZalithLauncher 游戏 VM（`:game` 进程会抢前台，干扰 UI 自动化，必要时 `adb shell am force-stop com.movtery.zalithlauncher.v2`）。
+
+## 已知遗留（2026-08-02 审查后未做）
+
+- UI 字符串仍硬编码中文，未迁移 `strings.xml`（`values-en` 也无）。
+- `app/build.gradle.kts` 中 material3 依赖未被源码使用；navigationevent 依赖声明保留（miuix 需要）。
+- 搜索会匹配 Key 明文（`HomeScreen.searchItems` 含 `it.value`），属有意保留。

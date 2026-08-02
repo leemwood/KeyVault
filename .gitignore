@@ -1,0 +1,13 @@
+# Gradle / Android 构建产物
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.cxx/
+.kotlin/
+
+# 其他
+*.log
+.DS_Store
