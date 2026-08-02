@@ -4,6 +4,9 @@
 
 Android 密钥/API Key 管理应用，Kotlin + Jetpack Compose，UI 库为 **miuix**（`top.yukonga.miuix`，HyperOS 风格，非 Material 3）。数据存 Preferences DataStore（JSON 序列化，以稳定 id 为 key，name 为字段，兼容旧 name-key 格式）。包名 `cn.lemwood.keyvault`。
 
+- 仓库：https://github.com/leemwood/KeyVault（public，main 分支，2026-08-02 初始化推送）
+- 截图位于 `docs/screenshots/`（home/detail/delete_dialog），README 引用
+
 ## 关键坑（2026-08-02 实机踩过）
 
 - **miuix SuperDialog 依赖 NavigationEventDispatcher**：`SuperDialog`（含 InputDialog）内部用 `NavigationBackHandler`，必须在 Composition 根部提供 `CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides rememberNavigationEventDispatcherOwner(parent = null))`（见 `MainActivity.kt`）。删掉会直接 `IllegalStateException` 崩溃；根部调用必须显式传 `parent = null`。这不是死代码，勿删。
