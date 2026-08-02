@@ -11,3 +11,7 @@ local.properties
 # 其他
 *.log
 .DS_Store
+
+# 签名密钥（勿入库）
+*.jks
+keystore.properties
