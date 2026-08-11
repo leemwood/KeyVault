@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +60,7 @@ fun HomeScreen(
     onAddService: (String) -> Boolean,
     onDeleteService: (Service) -> Unit,
     onUpdateServiceName: (String, String) -> Boolean,
+    onAboutClick: () -> Unit = {},
     viewModel: VaultViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -78,7 +80,14 @@ fun HomeScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            SmallTopAppBar(title = "KeyVault")
+            SmallTopAppBar(
+                title = "KeyVault",
+                actions = {
+                    IconButton(onClick = onAboutClick) {
+                        Icon(Icons.Outlined.Info, contentDescription = "关于")
+                    }
+                }
+            )
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -275,27 +284,27 @@ private fun ServiceCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(16.dp),
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         showIndication = true,
         onClick = onClick
     ) {
-        Text(
-            text = service.name,
-            style = MiuixTheme.textStyles.title2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "${service.items.size} 个配置项",
-            style = MiuixTheme.textStyles.footnote2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Text(
+                text = service.name,
+                style = MiuixTheme.textStyles.body1,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${service.items.size} 个配置项",
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1
+            )
             IconButton(onClick = onEdit) {
                 Icon(Icons.Outlined.Edit, contentDescription = "编辑")
             }
@@ -318,7 +327,7 @@ private fun SearchResultCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(16.dp),
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         showIndication = true,
         onClick = onClick
     ) {
