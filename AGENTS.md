@@ -73,8 +73,27 @@
 - **务必离线备份 keystore 与 keystore.properties**，丢失则无法以同一签名发布更新。
 - debug 与 release 签名不同，设备上互装需先卸载（数据会丢）。
 - **debug 包名带 `.debug` 后缀**：`cn.lemwood.keyvault.debug`，可与 release 共存。
-- 首版：tag `v1.0.0`，GitHub Release 附件命名 `KeyVault-v1.0.0.apk`。
+- 历史 tag：`v1.0.0`、`v1.1.0`、`v1.2.0`（预发布）。GitHub Release 附件命名 `KeyVault-<version>.apk`。
 - Termux 构建时需手动打开 `gradle.properties` 里注释掉的 `android.aapt2FromMavenOverride`。
+
+### 发布流程（2026-10-03 走通）
+
+1. 版本号在 `gradle/libs.versions.toml` 的 `app-version-name` / `app-version-code`，改这里即可。
+2. 签名：`keystore.properties` + `keyvault-release.jks` 放**项目根**（均已 gitignore）。zip 由柠枺提供，解压即用，四个 key（`storeFile`/`storePassword`/`keyAlias`/`keyPassword`）与 `androidApp/build.gradle.kts` 对应。
+3. 构建：`JAVA_HOME=E:/jdk21 ./gradlew :androidApp:assembleRelease`。过程中 `lintVital` 会刷一堆 `Module was compiled with an incompatible version of Kotlin ... 2.3.0, expected 2.1.0` 的 `e:` 行，**那是 lint 的噪声，不影响产物**，别当成编译失败。
+4. 验签（必做）：
+   ```
+   E:/android-sdk-win/build-tools/36.0.0/apksigner.bat verify --verbose --print-certs \
+     androidApp/build/outputs/apk/release/androidApp-release.apk
+   ```
+   应见 `Verifies` + `v2 scheme: true` + `CN=lemwood, OU=KeyVault` + SHA-256 `e84ed384...`（与 `keytool -list -keystore keyvault-release.jks` 输出一致）。
+5. 发版：**`gh` 不在 PATH，本机在 `D:/app/gh/gh.exe`**（已登录 leemwood，含 repo 权限）：
+   ```
+   cp androidApp-release.apk KeyVault-<ver>.apk
+   gh release create <tag> --prerelease --title "..." --notes-file - KeyVault-<ver>.apk
+   ```
+   预发布加 `--prerelease`，正式版去掉。
+6. 提交前务必 `git diff --cached --name-only | grep -iE "\.jks|keystore|local.properties"` 确认没把密钥带进去。
 
 ## 调试设备
 
