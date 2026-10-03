@@ -78,6 +78,26 @@
 
 ### 发布流程（2026-10-03 走通）
 
+#### 方式 A：CI 自动（推荐，`.github/workflows/release.yml`）
+
+签名密钥已放进 GitHub **Secrets**（不是明文 Variables），四个：
+
+| Secret | 内容 |
+| --- | --- |
+| `KEYSTORE_BASE64` | `base64 -w 0 keyvault-release.jks` 的输出 |
+| `KEYSTORE_PASSWORD` | keystore 密码 |
+| `KEY_ALIAS` | `keyvault` |
+| `KEY_PASSWORD` | 私钥密码 |
+
+workflow 里 `echo "$KEYSTORE_BASE64" | base64 -d > keyvault-release.jks` 还原，再生成 `keystore.properties`，构建后 `apksigner verify` 验签，最后挂到 Release（已存在则 `--clobber` 替换，不存在则 `gh release create --generate-notes`），结束前 `rm` 掉还原出的密钥文件。
+
+- 推 `v*` 标签即自动发布；也可 `workflow_dispatch` 手动触发并指定 tag（**必须填 tag**，否则 `github.ref_name` 会是分支名而误建一个叫「main」的 Release）。
+- 实测一次 5m4s 跑通，CI 内验签结果与本地一致（`CN=lemwood, OU=KeyVault`，SHA-256 `e84ed384...`）。
+- 注意：CI 产物与本地产物**字节数相同但 sha256 不同**（构建环境差异进了 zip 元数据），属正常，签名证书一致即可。
+- 警告：CI 日志里 `actions/checkout@v4`、`setup-java@v4` 会报 Node 20 弃用、`setup-java` 建议升 v5——只是提示，不影响构建。
+
+#### 方式 B：本地手工
+
 1. 版本号在 `gradle/libs.versions.toml` 的 `app-version-name` / `app-version-code`，改这里即可。
 2. 签名：`keystore.properties` + `keyvault-release.jks` 放**项目根**（均已 gitignore）。zip 由柠枺提供，解压即用，四个 key（`storeFile`/`storePassword`/`keyAlias`/`keyPassword`）与 `androidApp/build.gradle.kts` 对应。
 3. 构建：`JAVA_HOME=E:/jdk21 ./gradlew :androidApp:assembleRelease`。过程中 `lintVital` 会刷一堆 `Module was compiled with an incompatible version of Kotlin ... 2.3.0, expected 2.1.0` 的 `e:` 行，**那是 lint 的噪声，不影响产物**，别当成编译失败。
