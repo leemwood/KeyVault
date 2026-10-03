@@ -1,0 +1,42 @@
+[versions]
+agp = "8.9.3"
+kotlin = "2.3.21"
+composeMultiplatform = "1.10.3"
+kotlinxSerialization = "1.11.0"
+kotlinxCoroutines = "1.10.2"
+
+android-compileSdk = "36"
+android-minSdk = "26"
+android-targetSdk = "36"
+
+# 必须 >= 1.12.0：只有这个版本的 ComponentActivity 才实现 NavigationEventDispatcherOwner，
+# 返回键事件才能流进 Compose 的 LocalNavigationEventDispatcherOwner（1.9.3 会导致返回键直接退出 App）
+androidx-activity = "1.12.4"
+androidx-core = "1.15.0"
+androidx-datastore = "1.1.7"
+androidx-lifecycle = "2.10.0"
+androidx-navigationevent = "1.0.2"
+miuix = "0.8.8"
+
+app-version-name = "1.2.0"
+app-version-code = "3"
+
+[libraries]
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "androidx-datastore" }
+androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+androidx-navigationevent-compose = { module = "androidx.navigationevent:navigationevent-compose", version.ref = "androidx-navigationevent" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+miuix = { module = "top.yukonga.miuix.kmp:miuix", version.ref = "miuix" }
+miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons", version.ref = "miuix" }
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

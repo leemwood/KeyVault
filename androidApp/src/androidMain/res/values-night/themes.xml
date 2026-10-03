@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜间窗口背景改为黑色，避免深色模式下冷启动闪白（Compose 内容绘制前的那几帧） -->
+    <style name="Theme.KeyVault" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

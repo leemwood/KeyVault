@@ -5,6 +5,7 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -14,4 +15,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "KeyVault"
-include(":app")
+
+include(":shared")
+include(":androidApp")
+include(":desktopApp")

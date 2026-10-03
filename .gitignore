@@ -1,7 +1,9 @@
 # Gradle / Android 构建产物
 .gradle/
 build/
-app/build/
+androidApp/build/
+shared/build/
+desktopApp/build/
 local.properties
 *.iml
 .idea/
@@ -11,6 +13,9 @@ local.properties
 # 其他
 *.log
 .DS_Store
+
+# WorkBuddy 项目数据（记忆/会话，勿入库）
+.workbuddy/
 
 # 签名密钥（勿入库）
 *.jks
