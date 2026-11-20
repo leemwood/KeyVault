@@ -24,11 +24,15 @@ import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventState
+import cn.lemwood.keyvault.data.model.VaultProfile
 import cn.lemwood.keyvault.platform.NoOpVaultFileIo
 import cn.lemwood.keyvault.platform.VaultFileIo
+import cn.lemwood.keyvault.sync.LanPairing
+import cn.lemwood.keyvault.sync.SyncWindowControl
 import cn.lemwood.keyvault.ui.screen.AboutScreen
 import cn.lemwood.keyvault.ui.screen.HomeScreen
 import cn.lemwood.keyvault.ui.screen.ItemDetailScreen
+import cn.lemwood.keyvault.ui.screen.PairingScreen
 import cn.lemwood.keyvault.ui.screen.ProfileManagerScreen
 import cn.lemwood.keyvault.ui.screen.ServiceDetailScreen
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -52,9 +56,12 @@ fun KeyVaultApp(
     onSecureScreenChange: (Boolean) -> Unit = {},
     onSystemBarsAppearanceChange: (Boolean) -> Unit = {},
     fileIo: VaultFileIo = NoOpVaultFileIo,
+    pairing: LanPairing? = null,
+    syncWindow: SyncWindowControl? = null,
+    vaultViewModel: VaultViewModel? = null,
     navigationEventDispatcherOwner: NavigationEventDispatcherOwner? = null
 ) {
-    val viewModel = rememberVaultViewModel()
+    val viewModel = vaultViewModel ?: rememberVaultViewModel()
 
     DisposableEffect(viewModel) {
         onDispose { viewModel.flush() }
@@ -81,22 +88,31 @@ fun KeyVaultApp(
             val isLoading by viewModel.isLoading.collectAsState()
             val profiles by viewModel.profiles.collectAsState()
             val activeProfileId by viewModel.activeProfileId.collectAsState()
+            val replicaConflicts by viewModel.replicaConflicts.collectAsState(initial = emptyMap())
+            val conflictHistory by viewModel.conflictHistory.collectAsState(initial = emptyMap())
             var selectedServiceId by rememberSaveable { mutableStateOf<String?>(null) }
             var selectedItemId by rememberSaveable { mutableStateOf<String?>(null) }
             var showAbout by rememberSaveable { mutableStateOf(false) }
             var showProfileManager by rememberSaveable { mutableStateOf(false) }
+            var showPairing by remember { mutableStateOf(false) }
+            var showTransfer by remember { mutableStateOf(false) }
+            var pendingImport by remember { mutableStateOf<VaultProfile?>(null) }
+            val isImporting by viewModel.isImporting.collectAsState()
             val selectedService = selectedServiceId?.let { id -> services.find { it.id == id } }
             val selectedItem = selectedItemId?.let { id -> selectedService?.items?.find { it.id == id } }
 
             // 只用「一个」返回处理器并按当前层级决定怎么退，不要每层各注册一个：
             // 多个 NavigationBackHandler 同时启用时事件会被分发多次，实际表现是返回键直接退出 App。
-            val canGoBack = showProfileManager || showAbout ||
+            val canGoBack = showPairing || showProfileManager || showAbout ||
                 selectedItemId != null || selectedServiceId != null
             NavigationBackHandler(
                 state = rememberNavigationEventState(currentInfo = NavigationEventInfo.None),
                 isBackEnabled = canGoBack,
                 onBackCompleted = {
                     when {
+                        showTransfer -> showTransfer = false
+                        showPairing -> showPairing = false
+                        pendingImport != null -> if (!isImporting) pendingImport = null
                         showProfileManager -> showProfileManager = false
                         showAbout -> showAbout = false
                         selectedItemId != null -> selectedItemId = null
@@ -105,8 +121,8 @@ fun KeyVaultApp(
                 }
             )
 
-            // 首页允许截图；一旦进入二级/三级页面（含 key 明文）即请求平台禁止截屏
-            val deepPage = selectedServiceId != null
+            // 详情和备份预览可能显示敏感内容，通知平台禁止截屏。
+            val deepPage = selectedServiceId != null || pendingImport != null
             DisposableEffect(deepPage) {
                 onSecureScreenChange(deepPage)
                 onDispose { onSecureScreenChange(false) }
@@ -114,6 +130,7 @@ fun KeyVaultApp(
 
             // 用层级 id 作转场 key，避免编辑导致对象变化触发重复转场
             val screenKey = when {
+                showPairing -> "pairing"
                 showProfileManager -> "profiles"
                 showAbout -> "about"
                 selectedItem != null -> "item:${selectedItem.id}"
@@ -128,11 +145,30 @@ fun KeyVaultApp(
                     label = "screen_transition"
                 ) { key ->
                     when {
+                        key == "pairing" && pairing != null -> PairingScreen(
+                            pairing = pairing,
+                            insets = paddingValues,
+                            profiles = profiles,
+                            activeProfileId = activeProfileId,
+                            store = viewModel.transferStore,
+                            incrementalStore = viewModel.incrementalStore,
+                            replicaConflicts = replicaConflicts,
+                            conflictHistory = conflictHistory,
+                            clearConflictHistory = viewModel::clearConflictHistory,
+                            syncWindow = syncWindow,
+                            resolveConflict = viewModel::resolveReplicaConflict,
+                            showTransfer = showTransfer,
+                            onShowTransfer = { showTransfer = it },
+                            onBack = { showPairing = false },
+                        )
                         key == "profiles" -> {
                             ProfileManagerScreen(
                                 viewModel = viewModel,
                                 fileIo = fileIo,
                                 contentPadding = paddingValues,
+                                pendingImport = pendingImport,
+                                onPreview = { pendingImport = it },
+                                onPairing = pairing?.let { { showPairing = true } },
                                 onBack = { showProfileManager = false }
                             )
                         }

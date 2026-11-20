@@ -1,54 +1,86 @@
 package cn.lemwood.keyvault.platform
 
+import cn.lemwood.keyvault.data.backup.BackupException
+import cn.lemwood.keyvault.data.backup.BackupProblem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
-/**
- * 桌面端的文件读写：直接用 AWT 原生对话框。
- *
- * 这里刻意不切到 IO 线程 —— macOS 的 AWT 组件必须在 AWT 事件线程（也就是 Compose 的主线程）上创建，
- * 跨线程弹窗在 macOS 上会卡死或抛异常；模态对话框自己会泵事件循环，阻塞主线程是安全的。
- */
 class DesktopFileIo : VaultFileIo {
-
-    override suspend fun saveFile(fileName: String, content: String): Boolean {
-        val dialog = FileDialog(
-            null as Frame?,
-            "导出配置",
-            FileDialog.SAVE
-        ).apply {
+    // Compose Desktop supplies the AWT event thread for the native pickers, including on macOS.
+    override suspend fun saveFile(fileName: String, content: ByteArray, onWriting: () -> Unit): Boolean {
+        val dialog = FileDialog(null as Frame?, "导出配置", FileDialog.SAVE).apply {
             file = withJsonSuffix(fileName)
-            isVisible = true
         }
-        val directory = dialog.directory ?: return false
-        val file = dialog.file ?: return false
-        val target = File(directory, withJsonSuffix(file))
-        return runCatching {
-            target.writeText(content, Charsets.UTF_8)
-            true
-        }.getOrDefault(false)
+        val target = dialog.selectPath(addSuffix = true) ?: return false
+        currentCoroutineContext().ensureActive()
+        onWriting()
+        withContext(Dispatchers.IO) { writeBackupAtomically(target, content) }
+        return true
     }
 
-    override suspend fun openFile(): String? {
-        val dialog = FileDialog(
-            null as Frame?,
-            "导入配置",
-            FileDialog.LOAD
-        ).apply {
-            // 只显示 json，但不限制用户切到「所有文件」
+    override suspend fun openFile(): ByteArray? {
+        val dialog = FileDialog(null as Frame?, "导入配置", FileDialog.LOAD).apply {
             filenameFilter = { dir, name ->
                 name.endsWith(".json", ignoreCase = true) || File(dir, name).isDirectory
             }
-            isVisible = true
         }
-        val directory = dialog.directory ?: return null
-        val file = dialog.file ?: return null
-        return runCatching {
-            File(directory, file).readText(Charsets.UTF_8)
-        }.getOrNull()
+        val path = dialog.selectPath() ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                Files.newInputStream(path).use { it.readBackupBytes() }
+            } catch (error: IOException) {
+                throw backupIoFailure(error)
+            } catch (_: SecurityException) {
+                throw BackupException(BackupProblem.FILE_IO)
+            }
+        }
+    }
+
+    private fun FileDialog.selectPath(addSuffix: Boolean = false): Path? = try {
+        isVisible = true
+        val name = file
+        val folder = directory
+        if (name == null || folder == null) null
+        else File(folder, if (addSuffix) withJsonSuffix(name) else name).toPath()
+    } finally {
+        dispose()
     }
 
     private fun withJsonSuffix(name: String): String =
         if (name.endsWith(".json", ignoreCase = true)) name else "$name.json"
+}
+
+internal suspend fun writeBackupAtomically(target: Path, content: ByteArray) {
+    val directory = target.toAbsolutePath().parent
+    try {
+        if (Files.getFileStore(directory).usableSpace < content.size) {
+            throw BackupException(BackupProblem.NO_SPACE)
+        }
+        val temporary = Files.createTempFile(directory, ".keyvault-backup-", ".tmp")
+        try {
+            FileOutputStream(temporary.toFile()).use { output ->
+                output.writeBackupBytes(content)
+                output.fd.sync()
+            }
+            currentCoroutineContext().ensureActive()
+            Files.move(temporary, target, ATOMIC_MOVE, REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
+    } catch (error: IOException) {
+        throw backupIoFailure(error)
+    } catch (_: SecurityException) {
+        throw BackupException(BackupProblem.FILE_IO)
+    }
 }

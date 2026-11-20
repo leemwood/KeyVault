@@ -13,6 +13,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(project(":shared"))
             implementation(compose.desktop.currentOs)
+            implementation(libs.kotlinx.coroutines.core)
         }
     }
 }
@@ -23,6 +24,7 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            modules("jdk.unsupported") // DataStore's JVM implementation uses atomicfu's Unsafe backend.
             packageName = "KeyVault"
             packageVersion = libs.versions.app.version.name.get()
 

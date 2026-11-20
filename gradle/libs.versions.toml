@@ -17,6 +17,10 @@ androidx-datastore = "1.1.7"
 androidx-lifecycle = "2.10.0"
 androidx-navigationevent = "1.0.2"
 miuix = "0.8.8"
+bouncycastle = "1.87"
+zxing = "3.5.3"
+zxingAndroid = "4.3.0"
+jmdns = "3.6.3"
 
 app-version-name = "1.2.0"
 app-version-code = "3"
@@ -28,10 +32,16 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 androidx-navigationevent-compose = { module = "androidx.navigationevent:navigationevent-compose", version.ref = "androidx-navigationevent" }
+bouncycastle-pkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 miuix = { module = "top.yukonga.miuix.kmp:miuix", version.ref = "miuix" }
 miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons", version.ref = "miuix" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+zxing-android = { module = "com.journeyapps:zxing-android-embedded", version.ref = "zxingAndroid" }
+jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

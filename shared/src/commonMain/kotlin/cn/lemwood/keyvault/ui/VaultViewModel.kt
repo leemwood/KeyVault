@@ -2,14 +2,27 @@ package cn.lemwood.keyvault.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import cn.lemwood.keyvault.data.backup.ImportPlan
+import cn.lemwood.keyvault.data.backup.ImportStrategy
+import cn.lemwood.keyvault.data.backup.uniqueImportName
 import cn.lemwood.keyvault.data.model.ApiKey
 import cn.lemwood.keyvault.data.model.Service
 import cn.lemwood.keyvault.data.model.ServiceItem
 import cn.lemwood.keyvault.data.model.VaultProfile
 import cn.lemwood.keyvault.data.repository.VaultRepository
-import cn.lemwood.keyvault.data.serializer.ProfileCodec
 import cn.lemwood.keyvault.platform.createVaultDataStore
+import cn.lemwood.keyvault.sync.TransferReceipt
+import cn.lemwood.keyvault.sync.TransferStatus
+import cn.lemwood.keyvault.sync.TransferStore
+import cn.lemwood.keyvault.sync.IncrementalStore
+import cn.lemwood.keyvault.sync.ReplicaConflict
+import cn.lemwood.keyvault.sync.ReplicaSnapshot
+import cn.lemwood.keyvault.sync.ReplicaUpdate
+import cn.lemwood.keyvault.sync.TransferException
+import cn.lemwood.keyvault.sync.TransferProblem
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -25,11 +38,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class VaultViewModel : ViewModel() {
+internal enum class ImportResult { SAVED, STALE_PREVIEW, SAVE_FAILED }
 
-    private val repository = VaultRepository(createVaultDataStore())
+class VaultViewModel constructor(private val repository: VaultRepository) : ViewModel() {
+    constructor() : this(VaultRepository(createVaultDataStore()))
+
 
     private val _profiles = MutableStateFlow<List<VaultProfile>>(emptyList())
     val profiles: StateFlow<List<VaultProfile>> = _profiles.asStateFlow()
@@ -56,6 +73,66 @@ class VaultViewModel : ViewModel() {
     private val loaded = CompletableDeferred<Unit>()
 
     private var saveJob: Job? = null
+    private val importLock = Mutex()
+    private val _isImporting = MutableStateFlow(false)
+    internal val isImporting = _isImporting.asStateFlow()
+    internal val replicaConflicts = repository.replicaConflicts
+    internal val conflictHistory = repository.conflictHistory
+    internal suspend fun clearConflictHistory(profileId: String) = repository.clearConflictHistory(profileId)
+    val incrementalStore: IncrementalStore = object : IncrementalStore {
+        override suspend fun replica(profileId: String): ReplicaSnapshot = withContext(Dispatchers.Main.immediate) {
+            loaded.await()
+            importLock.withLock {
+                commitProfiles { repository.captureReplica(VaultRepository.Snapshot(_profiles.value, _activeProfileId.value), profileId) }
+            }
+        }
+
+        override suspend fun status(receipt: TransferReceipt) = repository.transferStatus(receipt)
+
+        override suspend fun syncBindings() = repository.syncBindings()
+
+        override suspend fun applyReplica(expected: ReplicaSnapshot, peerProfile: String, update: ReplicaUpdate, receipt: TransferReceipt) {
+            withContext(Dispatchers.Main.immediate) {
+                importLock.withLock {
+                    if (_profiles.value.none { it == expected.profile }) throw TransferException(TransferProblem.STALE)
+                    commitProfiles { publish(repository.applyReplica(expected, peerProfile, update, receipt)) }
+                }
+            }
+        }
+    }
+
+    internal suspend fun resolveReplicaConflict(profileId: String, conflict: ReplicaConflict, remote: Boolean) {
+        withContext(Dispatchers.Main.immediate) {
+            loaded.await()
+            importLock.withLock {
+                commitProfiles { publish(repository.resolveReplicaConflict(profileId, conflict, remote)) }
+            }
+        }
+    }
+    internal val transferStore: TransferStore = object : TransferStore {
+        override suspend fun transferStatus(receipt: TransferReceipt) = repository.transferStatus(receipt)
+
+        override suspend fun commitTransfer(receipt: TransferReceipt, profile: VaultProfile): TransferStatus =
+            withContext(Dispatchers.Main.immediate) {
+                loaded.await()
+                importLock.withLock {
+                    val current = _profiles.value
+                    val added = VaultProfile(name = uniqueImportName(profile.name, current), services = profile.services)
+                    val snapshot = VaultRepository.Snapshot(current + added, _activeProfileId.value)
+                    commitProfiles {
+                        // The receipt and the new profile are committed together, even if the socket goes away.
+                        when (repository.saveReceived(snapshot, receipt)) {
+                            TransferStatus.MISSING -> {
+                                publish(snapshot)
+                                TransferStatus.SAVED
+                            }
+                            TransferStatus.SAVED -> TransferStatus.SAVED
+                            TransferStatus.CONFLICT -> TransferStatus.CONFLICT
+                        }
+                    }
+                }
+            }
+    }
 
     init {
         viewModelScope.launch {
@@ -79,6 +156,7 @@ class VaultViewModel : ViewModel() {
      * 桌面端 composition 销毁时也会走到这里（见 KeyVaultApp 的 DisposableEffect）。
      */
     fun flush() {
+        if (_isImporting.value) return
         saveJob?.cancel()
         if (!loaded.isCompleted) return
         runCatching {
@@ -94,6 +172,7 @@ class VaultViewModel : ViewModel() {
 
     /** 切换当前配置。立即落盘，避免下次启动回到旧配置。 */
     fun switchProfile(profileId: String) {
+        if (_isImporting.value) return
         if (_profiles.value.none { it.id == profileId }) return
         _activeProfileId.value = profileId
         persistNow()
@@ -101,6 +180,7 @@ class VaultViewModel : ViewModel() {
 
     /** 新建一份空配置（或带初始数据），并切换到它。同名返回 false。 */
     fun addProfile(name: String, services: List<Service> = emptyList()): Boolean {
+        if (_isImporting.value) return false
         val trimmed = name.trim()
         if (trimmed.isBlank()) return false
         if (_profiles.value.any { it.name == trimmed }) return false
@@ -112,6 +192,7 @@ class VaultViewModel : ViewModel() {
     }
 
     fun renameProfile(profileId: String, name: String): Boolean {
+        if (_isImporting.value) return false
         val trimmed = name.trim()
         if (trimmed.isBlank()) return false
         if (_profiles.value.any { it.id != profileId && it.name == trimmed }) return false
@@ -124,6 +205,7 @@ class VaultViewModel : ViewModel() {
 
     /** 删除配置；不允许删掉最后一份，删的是当前配置时自动切到第一份。 */
     fun deleteProfile(profileId: String): Boolean {
+        if (_isImporting.value) return false
         val current = _profiles.value
         if (current.size <= 1) return false
         val remaining = current.filter { it.id != profileId }
@@ -136,40 +218,50 @@ class VaultViewModel : ViewModel() {
         return true
     }
 
-    /**
-     * 从备份内容导入。约定是「新增一份配置」而不是覆盖现有数据，
-     * 这样导入别人的备份不会把本地数据冲掉，用户可自行切换或删除。
-     *
-     * @return 导入后的配置名，null 表示内容无法解析
-     */
-    fun importBackup(source: String, preferredName: String? = null): String? {
-        val decoded = ProfileCodec.decodeBackup(source) ?: return null
-        val name = uniqueName(preferredName?.trim()?.takeIf { it.isNotBlank() } ?: decoded.name)
-        val profile = VaultProfile(name = name, services = decoded.services)
-        _profiles.value = _profiles.value + profile
-        _activeProfileId.value = profile.id
-        persistNow()
-        return name
+    /** DataStore commits all three preference keys together. Publish the result only after success. */
+    internal suspend fun applyImport(plan: ImportPlan): ImportResult = withContext(Dispatchers.Main.immediate) {
+        loaded.await()
+        importLock.withLock {
+            val current = _profiles.value
+            val result = plan.result
+            val snapshot = if (plan.strategy == ImportStrategy.ADD) {
+                if (current.any { it.name == result.name || it.id == result.id }) {
+                    return@withLock ImportResult.STALE_PREVIEW
+                }
+                VaultRepository.Snapshot(current + result, result.id)
+            } else {
+                if (current.none { it == plan.target }) return@withLock ImportResult.STALE_PREVIEW
+                VaultRepository.Snapshot(current.map { if (it.id == result.id) result else it }, _activeProfileId.value)
+            }
+            try {
+                commitProfiles {
+                    repository.save(snapshot)
+                    publish(snapshot)
+                }
+                ImportResult.SAVED
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                ImportResult.SAVE_FAILED
+            }
+        }
     }
 
-    /** 导出当前配置成备份文件内容。 */
-    fun exportActiveProfile(): String {
-        val active = _profiles.value.find { it.id == _activeProfileId.value }
-            ?: return ProfileCodec.encodeBackup(VaultProfile(name = ProfileCodec.defaultProfileName()))
-        return ProfileCodec.encodeBackup(active)
+    private suspend fun <T> commitProfiles(action: suspend () -> T): T {
+        _isImporting.value = true
+        try {
+            return withContext(NonCancellable) {
+                saveJob?.join()
+                action()
+            }
+        } finally {
+            _isImporting.value = false
+        }
     }
 
-    fun exportProfile(profileId: String): String? {
-        val profile = _profiles.value.find { it.id == profileId } ?: return null
-        return ProfileCodec.encodeBackup(profile)
-    }
-
-    private fun uniqueName(base: String): String {
-        val names = _profiles.value.map { it.name }.toHashSet()
-        if (base !in names) return base
-        var index = 2
-        while ("$base ($index)" in names) index++
-        return "$base ($index)"
+    private fun publish(snapshot: VaultRepository.Snapshot) {
+        _profiles.value = snapshot.profiles
+        _activeProfileId.value = snapshot.activeId
     }
 
     private fun persistNow() {
@@ -342,12 +434,14 @@ class VaultViewModel : ViewModel() {
     private fun update(block: (List<Service>) -> List<Service>) {
         viewModelScope.launch {
             loaded.await()
-            val activeId = _activeProfileId.value
-            val newList = block(currentServices())
-            _profiles.value = _profiles.value.map { profile ->
-                if (profile.id == activeId) profile.copy(services = newList) else profile
+            importLock.withLock {
+                val activeId = _activeProfileId.value
+                val newList = block(currentServices())
+                _profiles.value = _profiles.value.map { profile ->
+                    if (profile.id == activeId) profile.copy(services = newList) else profile
+                }
+                scheduleSave()
             }
-            scheduleSave()
         }
     }
 
@@ -361,12 +455,6 @@ class VaultViewModel : ViewModel() {
                 _saveError.emit("保存失败，请重试")
             }
         }
-    }
-
-    /** 备份文件默认名（供导出时预填文件名）。 */
-    fun activeBackupFileName(): String {
-        val active = _profiles.value.find { it.id == _activeProfileId.value }
-        return ProfileCodec.backupFileName(active?.name ?: ProfileCodec.defaultProfileName())
     }
 
     /** 生成新配置的默认名：配置 2、配置 3……保证不重名。 */

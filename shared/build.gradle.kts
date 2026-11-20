@@ -15,6 +15,8 @@ kotlin {
 
     jvm()
 
+    applyDefaultHierarchyTemplate()
+
     sourceSets {
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -29,10 +31,27 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodel.compose)
             implementation(libs.androidx.navigationevent.compose)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.coroutines.core)
         }
 
-        jvmMain.dependencies {
-            implementation(compose.desktop.currentOs)
+        val jvmAndAndroidMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.bouncycastle.provider)
+                implementation(libs.zxing.core)
+            }
+        }
+
+        androidMain.get().dependsOn(jvmAndAndroidMain)
+
+        jvmMain {
+            dependsOn(jvmAndAndroidMain)
+            dependencies {
+                implementation(compose.desktop.currentOs)
+                implementation(libs.bouncycastle.pkix)
+                implementation(libs.kotlinx.coroutines.swing)
+                implementation(libs.jmdns)
+            }
         }
 
         jvmTest.dependencies {

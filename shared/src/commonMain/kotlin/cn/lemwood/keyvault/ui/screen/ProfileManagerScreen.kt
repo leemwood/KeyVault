@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -33,13 +32,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.lemwood.keyvault.data.model.VaultProfile
+import cn.lemwood.keyvault.data.backup.BackupCodec
+import cn.lemwood.keyvault.data.backup.BackupException
+import cn.lemwood.keyvault.data.backup.BackupProblem
+import cn.lemwood.keyvault.data.backup.BackupSource
 import cn.lemwood.keyvault.data.serializer.ProfileCodec
 import cn.lemwood.keyvault.platform.VaultFileIo
 import cn.lemwood.keyvault.ui.VaultViewModel
+import cn.lemwood.keyvault.ui.ImportResult
 import cn.lemwood.keyvault.ui.components.CollectMessages
 import cn.lemwood.keyvault.ui.components.MessageHost
 import cn.lemwood.keyvault.ui.components.rememberMessagePresenter
+import cn.lemwood.keyvault.ui.screen.components.BackupPasswordDialog
+import cn.lemwood.keyvault.ui.screen.components.BackupProgressDialog
 import cn.lemwood.keyvault.ui.screen.components.InputDialog
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -52,17 +60,14 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.extra.SuperDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 配置管理页：切换、新建、重命名、删除、导出，以及从备份文件导入。
- *
- * 导入的约定是「新增一份配置」而不是覆盖现有数据 —— 这样导入别人的备份不会把本地数据冲掉，
- * 导入后可以在这里（或首页左上角）自由切换、删除。
- */
 @Composable
 fun ProfileManagerScreen(
     viewModel: VaultViewModel,
     fileIo: VaultFileIo,
     contentPadding: PaddingValues,
+    pendingImport: VaultProfile?,
+    onPreview: (VaultProfile?) -> Unit,
+    onPairing: (() -> Unit)?,
     onBack: () -> Unit
 ) {
     val profiles by viewModel.profiles.collectAsState()
@@ -74,7 +79,60 @@ fun ProfileManagerScreen(
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<VaultProfile?>(null) }
     var deleting by remember { mutableStateOf<VaultProfile?>(null) }
-    var pendingImportContent by remember { mutableStateOf<String?>(null) }
+    var exporting by remember { mutableStateOf<VaultProfile?>(null) }
+    var encryptedImport by remember { mutableStateOf<BackupSource.Encrypted?>(null) }
+    var incorrectPassword by remember { mutableStateOf(false) }
+    var backupStage by remember { mutableStateOf<String?>(null) }
+    var backupJob by remember { mutableStateOf<Job?>(null) }
+
+    fun runBackup(stage: String, action: suspend () -> Unit) {
+        if (backupStage != null) return
+        backupStage = stage
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                action()
+            } catch (failure: BackupException) {
+                if (failure.problem == BackupProblem.WRONG_PASSWORD) {
+                    incorrectPassword = true
+                } else {
+                    presenter.show(failure.problem.message())
+                    encryptedImport = null
+                }
+            } finally {
+                backupStage = null
+                backupJob = null
+            }
+        }
+        backupJob = job
+        job.start()
+    }
+
+    if (pendingImport != null) {
+        val importing by viewModel.isImporting.collectAsState()
+        ImportPreviewScreen(
+            backup = pendingImport,
+            profiles = profiles,
+            activeId = activeId,
+            suggestedName = viewModel.suggestedProfileName(),
+            importing = importing,
+            contentPadding = contentPadding,
+            presenter = presenter,
+            onBack = { onPreview(null) },
+            onApply = { plan ->
+                scope.launch {
+                    when (viewModel.applyImport(plan)) {
+                        ImportResult.SAVED -> {
+                            onPreview(null)
+                            presenter.show("已导入到「${plan.result.name}」")
+                        }
+                        ImportResult.STALE_PREVIEW -> presenter.show("配置已变化，请重新检查预览")
+                        ImportResult.SAVE_FAILED -> presenter.show("导入保存失败，请重试")
+                    }
+                }
+            },
+        )
+        return
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -87,6 +145,7 @@ fun ProfileManagerScreen(
                     }
                 },
                 actions = {
+                    if (onPairing != null) TextButton("局域网配对", onClick = onPairing)
                     IconButton(onClick = { showCreateDialog = true }) {
                         Icon(Icons.Outlined.Add, contentDescription = "新建配置")
                     }
@@ -117,20 +176,7 @@ fun ProfileManagerScreen(
                         onSwitch = { viewModel.switchProfile(profile.id) },
                         onRename = { renaming = profile },
                         onDelete = { deleting = profile },
-                        onExport = {
-                            scope.launch {
-                                val json = viewModel.exportProfile(profile.id)
-                                if (json == null) {
-                                    presenter.show("配置不存在")
-                                    return@launch
-                                }
-                                val ok = fileIo.saveFile(
-                                    ProfileCodec.backupFileName(profile.name),
-                                    json
-                                )
-                                presenter.show(if (ok) "已导出「${profile.name}」" else "导出已取消或失败")
-                            }
-                        }
+                        onExport = { exporting = profile }
                     )
                 }
             }
@@ -139,25 +185,20 @@ fun ProfileManagerScreen(
             TextButton(
                 text = "导入备份文件",
                 onClick = {
-                    scope.launch {
-                        val content = fileIo.openFile()
-                        if (content.isNullOrBlank()) {
-                            presenter.show("未选择文件或文件为空")
-                        } else {
-                            pendingImportContent = content
+                    runBackup("正在读取备份…") {
+                        val content = fileIo.openFile() ?: return@runBackup
+                        try {
+                            when (val source = BackupCodec.inspect(content)) {
+                                is BackupSource.Legacy -> onPreview(source.profile)
+                                is BackupSource.Encrypted -> encryptedImport = source
+                            }
+                        } finally {
+                            content.fill(0)
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColorsPrimary()
-            )
-            Text(
-                text = "导入会新增一份配置，不会覆盖现有数据",
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
             )
             Spacer(modifier = Modifier.height(contentPadding.calculateBottomPadding()))
         }
@@ -227,26 +268,69 @@ fun ProfileManagerScreen(
         }
     }
 
-    pendingImportContent?.let { content ->
-        // key 保证每份待导入内容都用全新的输入框状态，不会串到上一次的输入
-        androidx.compose.runtime.key(content) {
-            InputDialog(
-                title = "导入为新配置",
-                hint = "配置名称",
-                initialValue = viewModel.suggestedProfileName(),
-                onDismiss = { pendingImportContent = null },
-                onConfirm = { name ->
-                    val imported = viewModel.importBackup(content, name.trim())
-                    if (imported != null) {
-                        presenter.show("已导入为「$imported」")
-                    } else {
-                        presenter.show("无法解析该文件，请确认是 KeyVault 备份")
-                    }
-                    pendingImportContent = null
-                }
-            )
+    backupStage?.let { stage ->
+        BackupProgressDialog(stage, cancelling = backupJob?.isCancelled == true) {
+            backupStage = "正在取消…"
+            backupJob?.cancel()
         }
+        return
     }
+
+    exporting?.let { profile ->
+        BackupPasswordDialog(
+            exporting = true,
+            onDismiss = { exporting = null },
+            onConfirm = { phrase ->
+                exporting = null
+                runBackup("正在加密备份…") {
+                    val password = phrase.encodeToByteArray()
+                    val content = try {
+                        BackupCodec.encode(profile, password)
+                    } finally {
+                        password.fill(0)
+                    }
+                    backupStage = "请选择保存位置"
+                    val saved = fileIo.saveFile(ProfileCodec.backupFileName(profile.name), content) {
+                        backupStage = "正在写入备份…"
+                    }
+                    if (saved) presenter.show("已导出「${profile.name}」")
+                }
+            },
+        )
+    }
+
+    encryptedImport?.let { source ->
+        BackupPasswordDialog(
+            exporting = false,
+            error = BackupProblem.WRONG_PASSWORD.message().takeIf { incorrectPassword },
+            onDismiss = {
+                encryptedImport = null
+                incorrectPassword = false
+            },
+            onConfirm = { phrase ->
+                incorrectPassword = false
+                runBackup("正在解密备份…") {
+                    val password = phrase.encodeToByteArray()
+                    try {
+                        onPreview(BackupCodec.unlock(source, password))
+                        encryptedImport = null
+                    } finally {
+                        password.fill(0)
+                    }
+                }
+            },
+        )
+    }
+}
+
+private fun BackupProblem.message() = when (this) {
+    BackupProblem.WRONG_PASSWORD -> "备份口令错误，或文件认证失败"
+    BackupProblem.DAMAGED -> "备份文件已损坏或格式无效"
+    BackupProblem.UNSUPPORTED -> "此备份的版本或加密算法不受支持"
+    BackupProblem.TOO_LARGE -> "备份内容过大"
+    BackupProblem.NO_SPACE -> "存储空间不足"
+    BackupProblem.FILE_IO -> "无法读写备份文件"
+    BackupProblem.INVALID_PASSWORD -> "请输入有效的备份口令"
 }
 
 @Composable
