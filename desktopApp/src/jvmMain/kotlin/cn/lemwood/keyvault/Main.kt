@@ -1,26 +1,31 @@
 package cn.lemwood.keyvault
 
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import cn.lemwood.keyvault.platform.DesktopFileIo
 import cn.lemwood.keyvault.sync.DesktopLanPairing
 import cn.lemwood.keyvault.sync.IncrementalStore
 import cn.lemwood.keyvault.sync.PairingDevice
 import cn.lemwood.keyvault.sync.SyncWindowControl
 import cn.lemwood.keyvault.sync.SyncWindowState
-import cn.lemwood.keyvault.ui.KeyVaultApp
+import cn.lemwood.keyvault.ui.desktop.DesktopVaultApp
 import cn.lemwood.keyvault.ui.VaultViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +33,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.awt.Dimension
 import java.awt.SystemTray
 
 fun main() = application {
@@ -51,10 +57,17 @@ fun main() = application {
     Window(
         onCloseRequest = { if (canHide && active) visible = false else exitApplication() },
         title = "KeyVault",
+        icon = KeyVaultTrayIcon,
         visible = visible,
+        state = rememberWindowState(position = WindowPosition(Alignment.Center), width = 1160.dp, height = 760.dp),
     ) {
-        KeyVaultApp(fileIo = remember { DesktopFileIo() }, pairing = remember { DesktopLanPairing() },
-            syncWindow = syncWindow, vaultViewModel = vault)
+        SideEffect { window.minimumSize = Dimension(740, 500) }
+        DesktopVaultApp(
+            viewModel = vault,
+            fileIo = remember { DesktopFileIo() },
+            pairing = remember { DesktopLanPairing() },
+            syncWindow = syncWindow,
+        )
     }
 }
 

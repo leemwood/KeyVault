@@ -106,7 +106,7 @@ fun AboutScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "安全地管理你的 API Key 与密钥，数据仅存于本地，不上云、不联网。",
+                text = "在本机管理 API Key 与密钥，支持加密备份和局域网同步。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.fillMaxWidth(),

@@ -303,7 +303,7 @@ fun HomeScreen(
     }
 }
 
-private fun searchItems(
+internal fun searchItems(
     services: List<Service>,
     query: String
 ): List<Pair<Service, ServiceItem>> {
