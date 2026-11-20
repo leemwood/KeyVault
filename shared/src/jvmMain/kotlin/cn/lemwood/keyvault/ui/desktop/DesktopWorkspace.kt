@@ -2,7 +2,6 @@ package cn.lemwood.keyvault.ui.desktop
 
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -39,8 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -49,6 +44,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.lemwood.keyvault.data.model.Service
@@ -58,8 +54,11 @@ import cn.lemwood.keyvault.ui.components.CollectMessages
 import cn.lemwood.keyvault.ui.components.MessageHost
 import cn.lemwood.keyvault.ui.components.rememberMessagePresenter
 import cn.lemwood.keyvault.ui.screen.searchItems
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal class DesktopSelection {
@@ -78,7 +77,7 @@ internal fun DesktopWorkspace(
     viewModel: VaultViewModel,
     modifier: Modifier,
 ) {
-    val colors = LocalDesktopColors.current
+    val colors = MiuixTheme.colorScheme
     val presenter = rememberMessagePresenter()
     CollectMessages(viewModel.saveError, presenter)
     var query by remember { mutableStateOf("") }
@@ -118,8 +117,8 @@ internal fun DesktopWorkspace(
                 onAdd = ::addService,
                 modifier = Modifier.width(if (compact) 202.dp else 269.dp).fillMaxHeight(),
             )
-            Box(Modifier.fillMaxHeight().width(1.dp).background(colors.line))
-            Box(Modifier.weight(1f).fillMaxHeight().background(colors.canvas)) {
+            Box(Modifier.fillMaxHeight().width(1.dp).background(colors.dividerLine))
+            Box(Modifier.weight(1f).fillMaxHeight().background(colors.surface)) {
                 if (selectedService != null) {
                     key(selectedService.id) {
                         DesktopServiceDetail(
@@ -175,7 +174,7 @@ private fun DesktopServiceList(
     onAdd: () -> Unit,
     modifier: Modifier,
 ) {
-    val colors = LocalDesktopColors.current
+    val colors = MiuixTheme.colorScheme
     val searching = query.isNotBlank()
     val matches = remember(services, query) { searchItems(services, query) }
     val matchingServices = remember(services, query) {
@@ -193,16 +192,16 @@ private fun DesktopServiceList(
             }
         }
     }
-    Column(modifier.background(colors.surface)) {
+    Column(modifier.background(colors.background)) {
         Row(
             Modifier.fillMaxWidth().padding(start = 14.dp, end = 12.dp, top = 16.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Column(Modifier.weight(1f)) {
-                Text("服务", Modifier.semantics { heading() }, color = colors.text, style = MiuixTheme.textStyles.title3)
+                Text("服务", Modifier.semantics { heading() }, color = colors.onBackground, style = MiuixTheme.textStyles.title3)
                 profileName?.let {
-                    Text(it, color = colors.muted, style = MiuixTheme.textStyles.footnote2,
+                    Text(it, color = colors.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote2,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -212,7 +211,7 @@ private fun DesktopServiceList(
         Text(
             if (searching) "搜索结果" else "全部服务 · ${services.size}",
             Modifier.padding(start = 16.dp, top = 19.dp, bottom = 7.dp),
-            color = colors.muted,
+            color = colors.onSurfaceVariantSummary,
             style = MiuixTheme.textStyles.footnote2,
         )
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -242,7 +241,7 @@ private fun DesktopServiceList(
                 }
                 if (searching && matchingServices.isEmpty() && matches.isEmpty()) {
                     item {
-                        Text("没有匹配的服务或配置项", Modifier.padding(8.dp), color = colors.muted,
+                        Text("没有匹配的服务或配置项", Modifier.padding(8.dp), color = colors.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.body2)
                     }
                 }
@@ -259,15 +258,12 @@ private fun DesktopSearchField(
     focusRequester: FocusRequester,
     modifier: Modifier,
 ) {
-    val colors = LocalDesktopColors.current
-    val shape = RoundedCornerShape(8.dp)
-    var focused by remember { mutableStateOf(false) }
+    val colors = MiuixTheme.colorScheme
     val shortcut = remember { if (System.getProperty("os.name").startsWith("Mac")) "⌘F" else "Ctrl+F" }
-    BasicTextField(
+    TextField(
         value = query,
         onValueChange = onQuery,
-        modifier = modifier.fillMaxWidth().height(38.dp).focusRequester(focusRequester)
-            .onFocusChanged { focused = it.isFocused }
+        modifier = modifier.fillMaxWidth().focusRequester(focusRequester)
             .semantics { contentDescription = "搜索服务、配置项、接口地址和 Key" }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape && query.isNotEmpty()) {
@@ -277,30 +273,17 @@ private fun DesktopSearchField(
                     false
                 }
             },
-        textStyle = MiuixTheme.textStyles.body2.copy(color = colors.text),
-        singleLine = true,
-        cursorBrush = SolidColor(colors.accent),
-        decorationBox = { field ->
-            Row(
-                Modifier.fillMaxSize().clip(shape).background(colors.field)
-                    .border(1.dp, if (focused) colors.accent else colors.line, shape).padding(start = 9.dp, end = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Icon(Icons.Outlined.Search, null, Modifier.size(17.dp), tint = colors.muted)
-                Box(Modifier.weight(1f)) {
-                    if (query.isEmpty()) {
-                        Text("搜索", color = colors.muted, style = MiuixTheme.textStyles.body2)
-                    }
-                    field()
-                }
-                if (query.isNotEmpty()) {
-                    DesktopIconButton(Icons.Outlined.Close, "清除搜索", onClick = { onQuery("") })
-                } else {
-                    Text(shortcut, Modifier.padding(end = 6.dp), color = colors.muted, style = MiuixTheme.textStyles.footnote2)
-                }
-            }
+        label = "搜索 · $shortcut",
+        labelColor = colors.onSurfaceVariantSummary,
+        leadingIcon = {
+            Icon(Icons.Outlined.Search, null, Modifier.padding(start = 10.dp, end = 6.dp).size(18.dp),
+                tint = colors.onSurfaceVariantSummary)
         },
+        trailingIcon = {
+            if (query.isNotEmpty()) DesktopIconButton(Icons.Outlined.Close, "清除搜索", onClick = { onQuery("") })
+        },
+        textStyle = MiuixTheme.textStyles.body2.copy(color = colors.onSurface),
+        singleLine = true,
     )
 }
 
@@ -312,26 +295,26 @@ private fun ServiceListRow(
     itemResult: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = LocalDesktopColors.current
-    Row(
-        Modifier.fillMaxWidth().desktopAction(onClick, selected = selected).height(58.dp).padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(if (selected) colors.surface else colors.field),
-            contentAlignment = Alignment.Center,
-        ) {
+    val colors = MiuixTheme.colorScheme
+    BasicComponent(
+        title = title,
+        summary = summary,
+        titleColor = BasicComponentDefaults.titleColor(
+            color = if (selected) colors.onPrimaryContainer else colors.onSurface,
+        ),
+        summaryColor = BasicComponentDefaults.summaryColor(
+            color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariantSummary,
+        ),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (selected) colors.primaryContainer else colors.background)
+            .semantics { this.selected = selected },
+        insideMargin = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
+        startAction = {
             Icon(
-                if (itemResult) Icons.Outlined.Layers else Icons.Outlined.Dns, null, Modifier.size(18.dp),
-                tint = if (selected) colors.accent else colors.muted,
+                if (itemResult) Icons.Outlined.Layers else Icons.Outlined.Dns, null, Modifier.size(20.dp),
+                tint = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariantSummary,
             )
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = if (selected) colors.accent else colors.text, style = MiuixTheme.textStyles.body1,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(summary, color = colors.muted, style = MiuixTheme.textStyles.footnote2,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
+        },
+        onClick = onClick,
+    )
 }

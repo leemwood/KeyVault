@@ -2,7 +2,6 @@ package cn.lemwood.keyvault.ui.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -54,8 +53,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
@@ -68,10 +67,14 @@ import cn.lemwood.keyvault.ui.VaultViewModel
 import cn.lemwood.keyvault.ui.screen.AboutScreen
 import cn.lemwood.keyvault.ui.screen.PairingScreen
 import cn.lemwood.keyvault.ui.screen.ProfileManagerScreen
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 
 private enum class DesktopPage(val label: String, val icon: ImageVector) {
     Vault("密钥库", Icons.Outlined.Key),
@@ -88,14 +91,13 @@ fun DesktopVaultApp(
     syncWindow: SyncWindowControl,
 ) {
     DisposableEffect(viewModel) { onDispose { viewModel.flush() } }
-    val isDark = isSystemInDarkTheme()
-    val colors = remember(isDark) { DesktopColors(isDark) }
+    val theme = remember { ThemeController(colorSchemeMode = ColorSchemeMode.System) }
     val dispatcher = rememberNavigationEventDispatcherOwner(parent = null)
     CompositionLocalProvider(
-        LocalDesktopColors provides colors,
         LocalNavigationEventDispatcherOwner provides dispatcher,
     ) {
-        MiuixTheme(colors.miuix) {
+        MiuixTheme(theme) {
+            val colors = MiuixTheme.colorScheme
             val profiles by viewModel.profiles.collectAsState()
             val activeId by viewModel.activeProfileId.collectAsState()
             val isLoading by viewModel.isLoading.collectAsState()
@@ -125,7 +127,7 @@ fun DesktopVaultApp(
             val returnToVault = { navigate(DesktopPage.Vault) }
 
             BoxWithConstraints(
-                Modifier.fillMaxSize().background(colors.canvas).onPreviewKeyEvent { event ->
+                Modifier.fillMaxSize().background(colors.surface).onPreviewKeyEvent { event ->
                     if (page == DesktopPage.Vault && event.type == KeyEventType.KeyDown &&
                         event.key == Key.F && (event.isCtrlPressed || event.isMetaPressed)
                     ) {
@@ -149,7 +151,7 @@ fun DesktopVaultApp(
                         onProfile = ::switchProfile,
                         onChooseProfile = { chooseProfile = true },
                     )
-                    Box(Modifier.fillMaxHeight().width(1.dp).background(colors.line))
+                    Box(Modifier.fillMaxHeight().width(1.dp).background(colors.dividerLine))
                     if (page == DesktopPage.Vault) {
                         key(activeId) {
                             DesktopWorkspace(
@@ -165,13 +167,13 @@ fun DesktopVaultApp(
                         }
                     } else {
                         Box(
-                            Modifier.weight(1f).fillMaxHeight().background(MiuixTheme.colorScheme.background),
+                            Modifier.weight(1f).fillMaxHeight().background(colors.surface),
                             contentAlignment = Alignment.TopCenter,
                         ) {
                             Surface(
                                 modifier = Modifier.widthIn(max = 760.dp).fillMaxSize(),
-                                color = MiuixTheme.colorScheme.background,
-                                contentColor = MiuixTheme.colorScheme.onBackground,
+                                color = colors.surface,
+                                contentColor = colors.onSurface,
                             ) {
                                 when (page) {
                                     DesktopPage.Vault -> Unit
@@ -245,10 +247,10 @@ private fun DesktopSidebar(
     onProfile: (String) -> Unit,
     onChooseProfile: () -> Unit,
 ) {
-    val colors = LocalDesktopColors.current
+    val colors = MiuixTheme.colorScheme
     val syncing = syncStatus == SyncWindowState.STARTING || syncStatus == SyncWindowState.RUNNING
     Column(
-        Modifier.width(if (compact) 62.dp else 208.dp).fillMaxHeight().background(colors.sidebar)
+        Modifier.width(if (compact) 62.dp else 208.dp).fillMaxHeight().background(colors.surfaceContainer)
             .padding(horizontal = if (compact) 8.dp else 14.dp, vertical = 16.dp),
         horizontalAlignment = if (compact) Alignment.CenterHorizontally else Alignment.Start,
     ) {
@@ -258,13 +260,13 @@ private fun DesktopSidebar(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
-                Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(colors.accent),
+                Modifier.size(34.dp).clip(RoundedCornerShape(12.dp)).background(colors.primary),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Outlined.Key, contentDescription = if (compact) "KeyVault" else null,
-                    modifier = Modifier.size(20.dp), tint = colors.onAccent)
+                    modifier = Modifier.size(20.dp), tint = colors.onPrimary)
             }
-            if (!compact) Text("KeyVault", color = colors.text, style = MiuixTheme.textStyles.title3)
+            if (!compact) Text("KeyVault", color = colors.onSurface, style = MiuixTheme.textStyles.title3)
         }
 
         for (destination in DesktopPage.entries) {
@@ -287,14 +289,14 @@ private fun DesktopSidebar(
         }
 
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.line))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.dividerLine))
         Spacer(Modifier.height(14.dp))
         if (compact) {
             DesktopIconButton(
                 Icons.Outlined.Layers, "切换配置", onChooseProfile, enabled = enabled && profiles.isNotEmpty(),
             )
         } else {
-            Text("配置", color = colors.muted, style = MiuixTheme.textStyles.footnote1,
+            Text("配置", color = colors.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1,
                 modifier = Modifier.padding(start = 9.dp, bottom = 6.dp).semantics { heading() })
             LazyColumn(
                 Modifier.fillMaxWidth().weight(1f),
@@ -323,26 +325,29 @@ private fun SidebarRow(
     syncActive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val colors = LocalDesktopColors.current
-    val tint = when {
-        !enabled -> colors.muted
-        selected -> colors.accent
-        else -> colors.text
-    }
-    Row(
-        Modifier.fillMaxWidth().desktopAction(onClick, selected = selected, enabled = enabled)
-            .height(38.dp).padding(horizontal = 9.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(17.dp), tint = tint)
-        Text(label, Modifier.weight(1f), color = tint, style = MiuixTheme.textStyles.body2,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (syncActive) SyncDot(Modifier.semantics { contentDescription = "后台同步运行中" })
-    }
+    val colors = MiuixTheme.colorScheme
+    val shape = RoundedCornerShape(12.dp)
+    BasicComponent(
+        title = label,
+        titleColor = BasicComponentDefaults.titleColor(
+            color = if (selected) colors.onPrimaryContainer else colors.onSurface,
+        ),
+        modifier = Modifier.fillMaxWidth().clip(shape)
+            .background(if (selected) colors.primaryContainer else colors.surfaceContainer)
+            .semantics { this.selected = selected },
+        insideMargin = PaddingValues(horizontal = 9.dp, vertical = 8.dp),
+        startAction = {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (selected) colors.onPrimaryContainer else colors.primary)
+        },
+        endActions = {
+            if (syncActive) SyncDot(Modifier.semantics { contentDescription = "后台同步运行中" })
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
 
 @Composable
 private fun SyncDot(modifier: Modifier) {
-    Box(modifier.size(7.dp).clip(CircleShape).background(LocalDesktopColors.current.active))
+    Box(modifier.size(7.dp).clip(CircleShape).background(MiuixTheme.colorScheme.primary))
 }
