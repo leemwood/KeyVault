@@ -24,6 +24,12 @@ kotlin {
             implementation(libs.androidx.navigationevent.compose)
             // AndroidVaultFileIo 用 CompletableDeferred 把 SAF 回调桥接成 suspend
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.zxing.android)
+            implementation(libs.zxing.core)
+        }
+        androidInstrumentedTest.dependencies {
+            implementation(libs.androidx.datastore.preferences)
+            implementation(libs.androidx.lifecycle.viewmodel)
         }
     }
 }
@@ -43,6 +49,7 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = libs.versions.app.version.code.get().toInt()
         versionName = libs.versions.app.version.name.get()
+        testInstrumentationRunner = "cn.lemwood.keyvault.sync.SyncTlsSmokeInstrumentation"
     }
 
     signingConfigs {
@@ -77,5 +84,9 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    packaging {
+        resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
     }
 }

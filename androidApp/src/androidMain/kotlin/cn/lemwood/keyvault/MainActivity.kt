@@ -1,12 +1,20 @@
 package cn.lemwood.keyvault
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import cn.lemwood.keyvault.ui.KeyVaultApp
+import cn.lemwood.keyvault.sync.androidLanPairing
+import cn.lemwood.keyvault.sync.IncrementalStore
+import cn.lemwood.keyvault.sync.PairingDevice
+import cn.lemwood.keyvault.sync.SyncWindowControl
 
 /**
  * 注意：返回键能正常工作依赖 ComponentActivity 实现 NavigationEventDispatcherOwner
@@ -20,11 +28,26 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // 必须在 STARTED 之前注册 SAF 回调，所以放在 onCreate 里、setContent 之前
         val fileIo = AndroidVaultFileIo(this, activityResultRegistry, this)
+        val qrScanner = PairingQrScanner(activityResultRegistry, this)
+        val pairing = androidLanPairing(this, scanCode = qrScanner::scan)
+        val application = application as KeyVaultApplication
+        val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        val syncWindow = object : SyncWindowControl by application.syncWindow {
+            override fun start(device: PairingDevice, store: IncrementalStore) {
+                application.syncWindow.start(device, store)
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
         setContent {
             KeyVaultApp(
                 onSecureScreenChange = { enabled -> setSecureScreen(enabled) },
                 onSystemBarsAppearanceChange = { isDark -> setSystemBarsAppearance(isDark) },
                 fileIo = fileIo,
+                pairing = pairing,
+                syncWindow = syncWindow,
+                vaultViewModel = application.vault,
                 navigationEventDispatcherOwner = this@MainActivity
             )
         }

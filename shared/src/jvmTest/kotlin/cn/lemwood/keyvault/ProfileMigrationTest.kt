@@ -4,14 +4,18 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import cn.lemwood.keyvault.data.repository.VaultRepository
+import cn.lemwood.keyvault.data.backup.BackupCodec
+import cn.lemwood.keyvault.data.backup.BackupException
+import cn.lemwood.keyvault.data.backup.BackupProblem
+import cn.lemwood.keyvault.data.backup.BackupSource
 import cn.lemwood.keyvault.data.serializer.ProfileCodec
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -93,29 +97,27 @@ class ProfileMigrationTest {
     }
 
     @Test
-    fun `backup export and import round trip`() {
+    fun `format 1 backup imports with all service data`() = runBlocking {
         val services = cn.lemwood.keyvault.data.serializer.VaultCodec.decode(legacyServicesJson)
-        val profile = cn.lemwood.keyvault.data.model.VaultProfile(name = "我的备份", services = services)
-        val backup = ProfileCodec.encodeBackup(profile)
-
-        val decoded = ProfileCodec.decodeBackup(backup)
-        assertNotNull(decoded)
+        val backup = """{"format":1,"name":"我的备份","services":$legacyServicesJson}"""
+        val decoded = assertIs<BackupSource.Legacy>(BackupCodec.inspect(backup.encodeToByteArray())).profile
         assertEquals("我的备份", decoded.name)
         assertEquals(services, decoded.services)
     }
 
     @Test
-    fun `import accepts bare services json from old versions`() {
-        val decoded = ProfileCodec.decodeBackup(legacyServicesJson)
-        assertNotNull(decoded)
+    fun `import accepts bare services json from old versions`() = runBlocking {
+        val decoded = assertIs<BackupSource.Legacy>(BackupCodec.inspect(legacyServicesJson.encodeToByteArray())).profile
         assertEquals(1, decoded.services.size)
         assertEquals("deepseek", decoded.services[0].name)
     }
 
     @Test
-    fun `import rejects unparseable content`() {
-        assertNull(ProfileCodec.decodeBackup("not a json"))
-        assertNull(ProfileCodec.decodeBackup(""))
+    fun `import rejects unparseable content`() = runBlocking {
+        for (document in listOf("not a json", "", """{"format":1,"services":{"service":false}}""")) {
+            val error = assertFailsWith<BackupException> { BackupCodec.inspect(document.encodeToByteArray()) }
+            assertEquals(BackupProblem.DAMAGED, error.problem)
+        }
     }
 
     @Test

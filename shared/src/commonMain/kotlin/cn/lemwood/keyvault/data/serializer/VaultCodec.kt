@@ -26,38 +26,40 @@ object VaultCodec {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun encode(services: List<Service>): String {
-        val root = buildJsonObject {
-            services.forEach { service ->
-                put(service.id, buildJsonObject {
-                    put("name", service.name)
-                    put("items", buildJsonObject {
-                        service.items.forEach { item ->
-                            put(item.id, buildJsonObject {
-                                put("name", item.name)
-                                put("url", item.apiUrl)
-                                put("keys", buildJsonArray {
-                                    item.keys.forEach { apiKey ->
-                                        add(buildJsonObject {
-                                            put("id", apiKey.id)
-                                            put("value", apiKey.value)
-                                            put("note", apiKey.note)
-                                        })
-                                    }
-                                })
+    fun encode(services: List<Service>): String = encodeServices(services).toString()
+
+    internal fun encodeServices(services: List<Service>): JsonObject = buildJsonObject {
+        services.forEach { service ->
+            put(service.id, buildJsonObject {
+                put("name", service.name)
+                put("items", buildJsonObject {
+                    service.items.forEach { item ->
+                        put(item.id, buildJsonObject {
+                            put("name", item.name)
+                            put("url", item.apiUrl)
+                            put("keys", buildJsonArray {
+                                item.keys.forEach { apiKey ->
+                                    add(buildJsonObject {
+                                        put("id", apiKey.id)
+                                        put("value", apiKey.value)
+                                        put("note", apiKey.note)
+                                    })
+                                }
                             })
-                        }
-                    })
+                        })
+                    }
                 })
-            }
+            })
         }
-        return root.toString()
     }
 
     fun decode(source: String): List<Service> {
         val root = runCatching { json.parseToJsonElement(source) }.getOrNull() as? JsonObject
             ?: return emptyList()
+        return decodeServices(root)
+    }
 
+    internal fun decodeServices(root: JsonObject): List<Service> {
         val services = mutableListOf<Service>()
         root.forEach { (serviceKey, serviceValue) ->
             val serviceObj = serviceValue as? JsonObject ?: return@forEach
